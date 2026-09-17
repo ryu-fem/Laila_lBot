@@ -195,6 +195,67 @@ def init_db():
             key TEXT PRIMARY KEY,
             value TEXT
         );
+        CREATE TABLE IF NOT EXISTS developers (
+            user_id INTEGER PRIMARY KEY,
+            first_name TEXT,
+            username TEXT,
+            added_by INTEGER,
+            added_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS marriages (
+            user_id INTEGER PRIMARY KEY,
+            partner_id INTEGER NOT NULL,
+            married_at INTEGER,
+            status TEXT DEFAULT 'active',
+            divorced_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS children (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            father_id INTEGER,
+            mother_id INTEGER,
+            owner_id INTEGER,
+            born_at INTEGER,
+            last_income INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS properties (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            prop_type TEXT,
+            bought_at INTEGER,
+            bought_price INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS vips (
+            chat_id INTEGER,
+            user_id INTEGER,
+            added_by INTEGER,
+            added_at INTEGER,
+            PRIMARY KEY (chat_id, user_id)
+        );
+        CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER,
+            user_id INTEGER,
+            text TEXT,
+            remind_at INTEGER,
+            created_at INTEGER,
+            sent INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS jokes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT NOT NULL,
+            added_by INTEGER,
+            added_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS jokes_usage (
+            user_id INTEGER PRIMARY KEY,
+            last_used INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS developer_permissions (
+            user_id INTEGER,
+            perm_key TEXT,
+            enabled INTEGER DEFAULT 1,
+            PRIMARY KEY (user_id, perm_key)
+        );
         """)
         for alter in [
             "ALTER TABLE points ADD COLUMN wins INTEGER DEFAULT 0",
@@ -202,6 +263,7 @@ def init_db():
             "ALTER TABLE groups ADD COLUMN welcome_enabled INTEGER DEFAULT 1",
             "ALTER TABLE group_messages ADD COLUMN message_id INTEGER",
             "ALTER TABLE group_messages ADD COLUMN media_type TEXT",
+            "ALTER TABLE groups ADD COLUMN welcome_text TEXT",
         ]:
             try: c.execute(alter)
             except sqlite3.OperationalError: pass
@@ -242,11 +304,16 @@ def forget_group(cid):
 
 def get_group(cid):
     with closing(_conn()) as c:
-        r = c.execute("SELECT chat_id,title,activated,activated_by,activated_at,welcome_enabled FROM groups WHERE chat_id=?", (cid,)).fetchone()
+        try:
+            r = c.execute("SELECT chat_id,title,activated,activated_by,activated_at,welcome_enabled,welcome_text FROM groups WHERE chat_id=?", (cid,)).fetchone()
+        except:
+            r = c.execute("SELECT chat_id,title,activated,activated_by,activated_at,welcome_enabled FROM groups WHERE chat_id=?", (cid,)).fetchone()
         if not r: return None
-        return {"chat_id":r[0],"title":r[1],"activated":bool(r[2]),
-                "activated_by":r[3],"activated_at":r[4],
-                "welcome_enabled":bool(r[5]) if len(r) > 5 else True}
+        d = {"chat_id":r[0],"title":r[1],"activated":bool(r[2]),
+             "activated_by":r[3],"activated_at":r[4],
+             "welcome_enabled":bool(r[5]) if len(r) > 5 else True}
+        d["welcome_text"] = r[6] if len(r) > 6 else ""
+        return d
 
 def list_groups():
     with closing(_conn()) as c:
@@ -263,6 +330,291 @@ def deactivate_group(cid):
 def set_welcome(cid, enabled):
     with closing(_conn()) as c, c:
         c.execute("UPDATE groups SET welcome_enabled=? WHERE chat_id=?", (1 if enabled else 0, cid))
+
+def set_welcome_text(cid, text):
+    with closing(_conn()) as c, c:
+        c.execute("UPDATE groups SET welcome_text=? WHERE chat_id=?", (text, cid))
+
+def list_developers():
+    with closing(_conn()) as c:
+        try:
+            rows = c.execute("SELECT user_id,first_name,username FROM developers ORDER BY added_at").fetchall()
+        except:
+            return []
+    return [{"user_id":r[0],"first_name":r[1],"username":r[2]} for r in rows]
+
+def add_developer(user_id, first_name=None, username=None, added_by=0):
+    with closing(_conn()) as c, c:
+        c.execute("INSERT OR REPLACE INTO developers(user_id,first_name,username,added_by,added_at) VALUES(?,?,?,?,?)",
+                  (user_id, first_name, username, added_by, int(time.time())))
+
+def remove_developer(user_id):
+    with closing(_conn()) as c, c:
+        c.execute("DELETE FROM developers WHERE user_id=?", (user_id,))
+
+# قائمة الصلاحيات
+DEV_PERMS = [
+    ("stats", "📊 إحصائيات البوت"),
+    ("games", "🏆 إدارة الألعاب"),
+    ("bank", "🏦 إدارة البنك"),
+    ("ar", "💬 الردود التلقائية"),
+    ("gban", "🚫 كلمات محظورة"),
+    ("groups", "🌐 كل جروبات البوت"),
+    ("broadcast", "📣 بث لكل الجروبات"),
+    ("db", "💾 قاعدة البيانات"),
+    ("devs", "👑 إدارة المطورين"),
+]
+
+
+def get_dev_permission(user_id, perm_key):
+    with closing(_conn()) as c:
+        try:
+            r = c.execute("SELECT enabled FROM developer_permissions WHERE user_id=? AND perm_key=?",
+                          (user_id, perm_key)).fetchone()
+            if r is None:
+                return False
+            return bool(r[0])
+        except:
+            return False
+
+
+def set_dev_permission(user_id, perm_key, enabled):
+    with closing(_conn()) as c, c:
+        c.execute("INSERT OR REPLACE INTO developer_permissions(user_id,perm_key,enabled) VALUES(?,?,?)",
+                  (user_id, perm_key, 1 if enabled else 0))
+
+
+def toggle_dev_permission(user_id, perm_key):
+    cur = get_dev_permission(user_id, perm_key)
+    set_dev_permission(user_id, perm_key, not cur)
+    return not cur
+
+
+def get_all_dev_perms(user_id):
+    result = {}
+    for key, _ in DEV_PERMS:
+        result[key] = get_dev_permission(user_id, key)
+    return result
+
+def is_developer(user_id):
+    with closing(_conn()) as c:
+        try:
+            r = c.execute("SELECT 1 FROM developers WHERE user_id=?", (user_id,)).fetchone()
+            return bool(r)
+        except:
+            return False
+
+# ==================== الزواج ====================
+def get_marriage(user_id):
+    """يرجع الزوج/الزوجة لو موجود"""
+    with closing(_conn()) as c:
+        r = c.execute("SELECT partner_id, married_at FROM marriages WHERE user_id=? AND status='active'", (user_id,)).fetchone()
+    return {"partner_id": r[0], "married_at": r[1]} if r else None
+
+
+def set_marriage(user1, user2):
+    """يعقد زواج بين اتنين"""
+    now = int(time.time())
+    with closing(_conn()) as c, c:
+        c.execute("INSERT OR REPLACE INTO marriages(user_id,partner_id,married_at,status) VALUES(?,?,?,'active')",
+                  (user1, user2, now))
+        c.execute("INSERT OR REPLACE INTO marriages(user_id,partner_id,married_at,status) VALUES(?,?,?,'active')",
+                  (user2, user1, now))
+
+
+def divorce(user_id):
+    """يطلق المستخدم - يرجع partner_id"""
+    m = get_marriage(user_id)
+    if not m:
+        return None
+    partner = m["partner_id"]
+    now = int(time.time())
+    with closing(_conn()) as c, c:
+        c.execute("UPDATE marriages SET status='divorced', divorced_at=? WHERE user_id IN (?,?)",
+                  (now, user_id, partner))
+    return partner
+
+
+# ==================== الأطفال ====================
+def add_child(father_id, mother_id):
+    """يضيف طفل جديد"""
+    now = int(time.time())
+    with closing(_conn()) as c, c:
+        cur = c.execute("INSERT INTO children(father_id,mother_id,owner_id,born_at,last_income) VALUES(?,?,?,?,0)",
+                        (father_id, mother_id, father_id, now))
+        return cur.lastrowid
+
+
+def get_children(user_id):
+    """يرجع كل أطفال المستخدم"""
+    with closing(_conn()) as c:
+        rows = c.execute("SELECT id,father_id,mother_id,owner_id,born_at,last_income FROM children WHERE owner_id=?",
+                         (user_id,)).fetchall()
+    return [{"id":r[0],"father_id":r[1],"mother_id":r[2],"owner_id":r[3],"born_at":r[4],"last_income":r[5]} for r in rows]
+
+
+def count_children(user_id):
+    with closing(_conn()) as c:
+        r = c.execute("SELECT COUNT(*) FROM children WHERE owner_id=?", (user_id,)).fetchone()
+    return r[0] if r else 0
+
+
+def transfer_children(from_id, to_id):
+    """ينقل كل الأطفال من شخص لشخص تاني"""
+    with closing(_conn()) as c, c:
+        c.execute("UPDATE children SET owner_id=? WHERE owner_id=?", (to_id, from_id))
+
+
+def transfer_children_random(user1, user2):
+    """ينقل الأطفال بشكل عشوائي بين اتنين"""
+    kids = get_children(user1) + get_children(user2)
+    if not kids: return
+    with closing(_conn()) as c, c:
+        for k in kids:
+            new_owner = random.choice([user1, user2])
+            c.execute("UPDATE children SET owner_id=? WHERE id=?", (new_owner, k["id"]))
+
+
+def update_child_income(child_id, ts):
+    with closing(_conn()) as c, c:
+        c.execute("UPDATE children SET last_income=? WHERE id=?", (ts, child_id))
+
+
+# ==================== الممتلكات ====================
+PROPS = [
+    ("car", "🚗 عربية"),
+    ("palace", "🏠 قصر"),
+    ("tower", "🏢 برج"),
+    ("island", "🏝 جزيرة"),
+    ("plane", "✈️ طيارة"),
+]
+
+
+def buy_property(user_id, prop_type, price):
+    with closing(_conn()) as c, c:
+        cur = c.execute("INSERT INTO properties(user_id,prop_type,bought_at,bought_price) VALUES(?,?,?,?)",
+                        (user_id, prop_type, int(time.time()), price))
+        return cur.lastrowid
+
+
+def list_properties(user_id):
+    with closing(_conn()) as c:
+        rows = c.execute("SELECT id,prop_type,bought_at,bought_price FROM properties WHERE user_id=? ORDER BY id DESC",
+                         (user_id,)).fetchall()
+    return [{"id":r[0],"prop_type":r[1],"bought_at":r[2],"bought_price":r[3]} for r in rows]
+
+
+def count_properties(user_id):
+    with closing(_conn()) as c:
+        r = c.execute("SELECT COUNT(*) FROM properties WHERE user_id=?", (user_id,)).fetchone()
+    return r[0] if r else 0
+
+
+def sell_property(prop_id):
+    with closing(_conn()) as c, c:
+        r = c.execute("SELECT user_id,prop_type,bought_price FROM properties WHERE id=?", (prop_id,)).fetchone()
+        if not r: return None
+        c.execute("DELETE FROM properties WHERE id=?", (prop_id,))
+        return {"user_id": r[0], "prop_type": r[1], "bought_price": r[2]}
+
+
+# ==================== VIP ====================
+def add_vip(chat_id, user_id, added_by):
+    with closing(_conn()) as c, c:
+        c.execute("INSERT OR REPLACE INTO vips(chat_id,user_id,added_by,added_at) VALUES(?,?,?,?)",
+                  (chat_id, user_id, added_by, int(time.time())))
+
+
+def remove_vip(chat_id, user_id):
+    with closing(_conn()) as c, c:
+        c.execute("DELETE FROM vips WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+
+
+def remove_all_vips(chat_id):
+    with closing(_conn()) as c, c:
+        cur = c.execute("DELETE FROM vips WHERE chat_id=?", (chat_id,))
+        return cur.rowcount
+
+
+def is_vip(chat_id, user_id):
+    with closing(_conn()) as c:
+        r = c.execute("SELECT 1 FROM vips WHERE chat_id=? AND user_id=?", (chat_id, user_id)).fetchone()
+    return bool(r)
+
+
+def list_vips(chat_id):
+    with closing(_conn()) as c:
+        rows = c.execute("SELECT user_id FROM vips WHERE chat_id=?", (chat_id,)).fetchall()
+    return [r[0] for r in rows]
+
+
+def list_all_vips():
+    with closing(_conn()) as c:
+        rows = c.execute("SELECT DISTINCT user_id FROM vips").fetchall()
+    return [r[0] for r in rows]
+
+
+# ==================== التذكيرات ====================
+def add_reminder(chat_id, user_id, text, remind_at):
+    with closing(_conn()) as c, c:
+        c.execute("INSERT INTO reminders(chat_id,user_id,text,remind_at,created_at,sent) VALUES(?,?,?,?,?,0)",
+                  (chat_id, user_id, text, remind_at, int(time.time())))
+
+
+def get_due_reminders():
+    now = int(time.time())
+    with closing(_conn()) as c:
+        rows = c.execute("SELECT id,chat_id,user_id,text,remind_at FROM reminders WHERE sent=0 AND remind_at <= ?",
+                         (now,)).fetchall()
+    return [{"id":r[0],"chat_id":r[1],"user_id":r[2],"text":r[3],"remind_at":r[4]} for r in rows]
+
+
+def mark_reminder_sent(rid):
+    with closing(_conn()) as c, c:
+        c.execute("UPDATE reminders SET sent=1 WHERE id=?", (rid,))
+
+
+# ==================== النكت ====================
+# ==================== النكت ====================
+def add_joke(text, added_by=None):
+    with closing(_conn()) as c, c:
+        cur = c.execute("INSERT INTO jokes(text,added_by,added_at) VALUES(?,?,?)",
+                        (text, added_by, int(time.time())))
+        return cur.lastrowid
+
+
+def remove_joke(joke_id):
+    with closing(_conn()) as c, c:
+        cur = c.execute("DELETE FROM jokes WHERE id=?", (joke_id,))
+        return cur.rowcount > 0
+
+
+def list_jokes():
+    with closing(_conn()) as c:
+        rows = c.execute("SELECT id,text FROM jokes ORDER BY id").fetchall()
+    return [{"id":r[0],"text":r[1]} for r in rows]
+
+
+def count_jokes():
+    with closing(_conn()) as c:
+        r = c.execute("SELECT COUNT(*) FROM jokes").fetchone()
+    return r[0] if r else 0
+
+
+def get_random_joke():
+    with closing(_conn()) as c:
+        r = c.execute("SELECT id,text FROM jokes ORDER BY RANDOM() LIMIT 1").fetchone()
+    return {"id":r[0],"text":r[1]} if r else None
+
+def get_last_joke_time(user_id):
+    with closing(_conn()) as c:
+        r = c.execute("SELECT last_used FROM jokes_usage WHERE user_id=?", (user_id,)).fetchone()
+    return r[0] if r else 0
+
+
+def set_joke_time(user_id, ts):
+    with closing(_conn()) as c, c:
+        c.execute("INSERT OR REPLACE INTO jokes_usage(user_id,last_used) VALUES(?,?)", (user_id, ts))
 
 def count_active_groups():
     """عدد الجروبات المفعلة"""
