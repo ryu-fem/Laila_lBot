@@ -56,6 +56,7 @@ PENDING_MENTION_TEXT    = -14
 PENDING_MESSAGES_COUNT  = -15
 PENDING_SAY_TEXT        = -16
 PENDING_BANK_SETTING    = -17
+PENDING_DEVS_ADD        = -100
 
 GROUP_TYPES             = {ChatType.GROUP, ChatType.SUPERGROUP}
 
@@ -67,6 +68,22 @@ TRIGGER_OWNER = ("المالك",)
 TRIGGER_ADMIN = ("الأدمن", "الادمن", "ادمن", "أدمن")
 TRIGGER_TOP   = ("توب", "التوب", "top")
 TRIGGER_TOP_MONEY_BANK = ("توب الفلوس", "توب فلوس")
+# ===== الجديد =====
+TRIGGER_MARRY = ("زوجني", "زواج", "اتجوز", "جوزني")
+TRIGGER_PARTNER = ("زوجي", "زوجتي", "مين زوجي", "مين زوجتي", "جوزي")
+TRIGGER_DIVORCE = ("طلاق", "طلقني", "اتطلق")
+TRIGGER_CHILD = ("طفل", "خلف", "خلفه", "انجب", "أنجب")
+TRIGGER_CHILD_INCOME = ("رزق الطفل", "رزق الأطفال", "رزق الاطفال", "رزق اطفالي", "رزق أطفالي")
+TRIGGER_BUY = ("اشتري", "اشتريت", "شراء", "اشتري عربية", "اشتري قصر", "اشتري برج", "اشتري جزيرة", "اشتري طيارة")
+TRIGGER_SELL = ("بيع", "بيعت", "بيع ممتلكاتي")
+TRIGGER_MY_DATA = ("بياناتي", "معلوماتي", "ملفي")
+TRIGGER_JOKE = ("نكتة", "نكته", "علاج", "ضحكني", "ضحك")
+TRIGGER_TIME = ("الوقت", "توقيت", "الساعة", "الوقت ايه", "الوقت إيه")
+TRIGGER_REMIND = ("ذكرني",)
+TRIGGER_VIP_LIST = ("قائمة VIP", "قائمة vip", "المميزين", "قائمة المميزين", "vip", "VIP")
+TRIGGER_VIP_ADD = ("رفع مميز", "رفع مميزة", "vip add")
+TRIGGER_VIP_REMOVE = ("مسح مميز", "مسح مميزة", "إزالة مميز", "ازالة مميز")
+TRIGGER_VIP_REMOVE_ALL = ("مسح المميزين", "إزالة الكل", "مسح كل المميزين")
 TRIGGER_TOP_THIEVES_2 = ("توب الحرامية", "توب حرامية", "الحرامية")
 TRIGGER_MY_STATS = ("إحصائياتي", "احصائياتي", "إحصائيتي", "احصائيتي")
 TRIGGER_HIS_STATS = ("إحصائياته", "احصائياته", "إحصائياتك", "احصائياتك", "إحصائياتها", "احصائياتها")
@@ -146,6 +163,26 @@ story_games = {}
 commands_pages = {}  # تتبع صفحة الأوامر لكل شات
 
 def is_owner(uid): return uid == OWNER_ID
+
+def has_perm(uid, perm_key):
+    """هل المستخدم عنده صلاحية معينة؟ المالك عنده كل حاجة"""
+    if uid == OWNER_ID:
+        return True
+    try:
+        if db.is_developer(uid):
+            return db.get_dev_permission(uid, perm_key)
+    except:
+        pass
+    return False
+
+def can_access_owner_menu(uid):
+    """هل يقدر يفتح إعدادات المالك؟"""
+    if uid == OWNER_ID:
+        return True
+    try:
+        return db.is_developer(uid)
+    except:
+        return False
 
 # ==================== الكاش ====================
 def cache_get(key, ttl):
@@ -1621,19 +1658,23 @@ async def cmd_top_money(update, ctx):
         await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
 
 async def cb_top_thieves(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """زر توب الحرامية"""
+    """الصفحة 2: توب الحرامية"""
     q = update.callback_query
     await q.answer()
     top = db.get_top_thieves(10)
-    kb = M([[B("⬅️ توب الفلوس", callback_data="top:money")]])
+    kb = M([
+        [B("◀️", callback_data="top:money"), B("▶️", callback_data="top:vip")],
+    ])
     if not top:
-        return await safe_edit(q, "📊 مفيش حرامية لسه 😅", reply_markup=kb)
-    lines = ["🥷 *Bank Turbo - أكبر 10 حرامية*\n"]
+        return await safe_edit(q, "🥷 *توب الحرامية*\n\n📭 مفيش حرامية لسه 😅",
+                              parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+    lines = ["🥷 *توب الحرامية - أكبر 10*\n"]
     medals = ["🥇","🥈","🥉"]
     for i, item in enumerate(top, 1):
         display = escape_html(item['first_name'] or "عضو")
         prefix = medals[i-1] if i <= 3 else f"{i}."
         lines.append(f"{prefix} {display} — سرق *{fmt_money(item['total_stolen'])}*")
+    lines.append("\n_2/3_")
     await safe_edit(q, "\n".join(lines), parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
 
 async def cb_top_money_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1641,15 +1682,42 @@ async def cb_top_money_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     top = db.get_top_money(10)
-    kb = M([[B("🥷 توب الحرامية ➡️", callback_data="top:thieves")]])
+    kb = M([
+        [B("▶️", callback_data="top:thieves"), B("🔙 رجوع", callback_data="panel:home")],
+    ])
     if not top:
-        return await safe_edit(q, "📊 لا يوجد حسابات بعد.", reply_markup=kb)
-    lines = ["🏆 *Bank Turbo - أغنى 10 أشخاص*\n"]
+        return await safe_edit(q, "🏆 *توب الفلوس*\n\n📭 لا يوجد حسابات بعد.",
+                              parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+    lines = ["🏆 *توب الفلوس - أغنى 10*\n"]
     medals = ["🥇","🥈","🥉"]
     for i, item in enumerate(top, 1):
         display = escape_html(item['first_name'] or "عضو")
         prefix = medals[i-1] if i <= 3 else f"{i}."
         lines.append(f"{prefix} {display} — *{fmt_money(item['balance'])}*")
+    lines.append("\n_1/3_")
+    await safe_edit(q, "\n".join(lines), parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+
+
+async def cb_top_vip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """الصفحة 3: قائمة VIP"""
+    q = update.callback_query
+    await q.answer()
+    kb = M([
+        [B("◀️", callback_data="top:thieves"), B("🔙 رجوع", callback_data="panel:home")],
+    ])
+    # نجمع كل VIP في كل الجروبات
+    vips = db.list_all_vips()
+    if not vips:
+        return await safe_edit(q, "👑 *قائمة VIP*\n\n📭 مفيش مميزين لسه.",
+                              parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+    lines = [f"👑 *قائمة VIP* ({len(vips)})\n"]
+    for uid in vips[:50]:
+        u = db.get_user(uid)
+        if u:
+            lines.append(f"• {escape_html(u['first_name'])}")
+        else:
+            lines.append(f"• عضو {uid}")
+    lines.append("\n_3/3_")
     await safe_edit(q, "\n".join(lines), parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
 
 async def cmd_top_thieves(update, ctx):
@@ -1724,6 +1792,8 @@ def owner_menu_kb():
         [B("🏦 البنك", callback_data="owner:bank")],
         [B("🌐 كل جروبات البوت", callback_data="owner:allgroups")],
         [B("📣 بث لكل الجروبات", callback_data="owner:broadcast")],
+        [B("📊 إحصائيات البوت", callback_data="owner:stats")],
+        [B("👑 المطورين", callback_data="owner:devs")],
         [B("💾 قاعدة البيانات", callback_data="owner:db")],
         [B("🔙 رجوع", callback_data="panel:home")],
     ])
@@ -1735,7 +1805,35 @@ def owner_bank_kb():
         [B("🔪 السرقة", callback_data="obank:steal")],
         [B("📈 الاستثمار", callback_data="obank:invest")],
         [B("🎰 الحظ", callback_data="obank:luck")],
+        [B("💍 الزواج", callback_data="obank:marriage")],
+        [B("👶 الأطفال", callback_data="obank:children")],
+        [B("🏠 الممتلكات", callback_data="obank:props")],
         [B("🔙 رجوع", callback_data="owner:menu")],
+    ])
+
+def obank_marriage_kb():
+    return M([
+        [B("💰 تكلفة الزواج", callback_data="obank:set:marriage_cost")],
+        [B("💸 استرداد الطلاق", callback_data="obank:set:divorce_refund")],
+        [B("🔙 رجوع", callback_data="owner:bank")],
+    ])
+
+def obank_children_kb():
+    return M([
+        [B("💰 تكلفة الطفل", callback_data="obank:set:child_cost")],
+        [B("💵 ربح الطفل/ساعة", callback_data="obank:set:child_income")],
+        [B("👥 أقصى عدد", callback_data="obank:set:max_children")],
+        [B("⏰ الكول داون", callback_data="obank:set:child_cooldown")],
+        [B("🔙 رجوع", callback_data="owner:bank")],
+    ])
+
+def obank_props_kb():
+    return M([
+        [B("💰 تكلفة الممتلك", callback_data="obank:set:prop_cost")],
+        [B("📉 أقل ربح %", callback_data="obank:set:prop_sell_min")],
+        [B("📈 أكبر ربح %", callback_data="obank:set:prop_sell_max")],
+        [B("⏰ الكول داون", callback_data="obank:set:prop_cooldown")],
+        [B("🔙 رجوع", callback_data="owner:bank")],
     ])
 
 def obank_salary_kb():
@@ -1817,6 +1915,8 @@ def owner_ar_kb():
 
 def owner_games_kb():
     return M([
+        [B("🎭 النكت", callback_data="owner:jokes")],
+        [B("⏰ التذكيرات", callback_data="owner:reminders")],
         [B("⚡ الأسرع", callback_data="og:fastest")],
         [B("🔤 رتب الحروف", callback_data="og:scramble")],
         [B("❓ أسئلة عامة", callback_data="og:questions")],
@@ -1834,6 +1934,31 @@ def owner_games_kb():
         [B("⏱ مؤقت", callback_data="og:info:timer")],
         [B("👥 المافيا", callback_data="og:info:mafia")],
         [B("🔙 رجوع", callback_data="owner:menu")],
+    ])
+
+def owner_jokes_kb():
+    return M([
+        [B("➕ إضافة نكتة", callback_data="jokes:add")],
+        [B("🗑 حذف نكتة", callback_data="jokes:del_list")],
+        [B("📋 عرض النكت", callback_data="jokes:show")],
+        [B("⏱ وقت النكتة", callback_data="jokes:cooldown")],
+        [B("🔙 رجوع", callback_data="owner:games")],
+    ])
+
+
+def owner_jokes_delete_kb(jokes):
+    rows = []
+    for j in jokes[:30]:
+        text = j["text"][:40]
+        rows.append([B(f"🗑 {text}", callback_data=f"jokes:del:{j['id']}")])
+    rows.append([B("🔙 رجوع", callback_data="owner:jokes")])
+    return M(rows)
+
+
+def owner_reminders_kb():
+    return M([
+        [B("⏰ أقصى وقت للتذكير", callback_data="reminders:set:max")],
+        [B("🔙 رجوع", callback_data="owner:games")],
     ])
 
 def owner_game_kb(game):
@@ -2225,6 +2350,50 @@ def owner_bank_text():
     return ("🏦 *إدارة Bank Turbo*\n\n"
             "اختر القسم اللي عاوز تعدله:")
 
+def owner_jokes_text():
+    count = db.count_jokes()
+    cd = db.get_bank_setting("joke_cooldown", 600)
+    return (f"🎭 *إعدادات النكت*\n\n"
+            f"📝 عدد النكت: *{count}*\n"
+            f"⏱ كول داون النكتة: *{fmt_time(cd)}*")
+
+
+def owner_reminders_text():
+    rm = db.get_bank_setting("reminder_max", 604800)
+    return (f"⏰ *إعدادات التذكيرات*\n\n"
+            f"⏱ أقصى وقت: *{fmt_time(rm)}*")
+
+def owner_bank_marriage_text():
+    mc = db.get_bank_setting("marriage_cost", 5000)
+    dr = db.get_bank_setting("divorce_refund", 3000)
+    return (f"💍 *إعدادات الزواج*\n\n"
+            f"💰 تكلفة الزواج: *{fmt_money(mc)}*\n"
+            f"💸 استرداد الطلاق: *{fmt_money(dr)}*")
+
+
+def owner_bank_children_text():
+    cc = db.get_bank_setting("child_cost", 500)
+    ci = db.get_bank_setting("child_income", 100)
+    mx = db.get_bank_setting("max_children", 5)
+    cd = db.get_bank_setting("child_cooldown", 86400)
+    return (f"👶 *إعدادات الأطفال*\n\n"
+            f"💰 تكلفة الطفل: *{fmt_money(cc)}*\n"
+            f"💵 ربح الطفل/ساعة: *{fmt_money(ci)}*\n"
+            f"👥 أقصى عدد: *{mx}*\n"
+            f"⏰ الكول داون: *{fmt_time(cd)}*")
+
+
+def owner_bank_props_text():
+    pc = db.get_bank_setting("prop_cost", 1000)
+    mn = db.get_bank_setting("prop_sell_min", 1)
+    mx = db.get_bank_setting("prop_sell_max", 25)
+    cd = db.get_bank_setting("prop_cooldown", 600)
+    return (f"🏠 *إعدادات الممتلكات*\n\n"
+            f"💰 تكلفة الممتلك: *{fmt_money(pc)}*\n"
+            f"📉 أقل ربح: *{mn}%*\n"
+            f"📈 أكبر ربح: *{mx}%*\n"
+            f"⏰ الكول داون: *{fmt_time(cd)}*")
+
 def owner_bank_salary_text():
     amt = db.get_bank_setting("salary_amount", 500)
     cd = db.get_bank_setting("salary_cooldown", 86400)
@@ -2536,31 +2705,44 @@ def commands_page_text(page):
         return ("🏦 *الأوامر — Bank Turbo*\n\n"
                 "• إنشاء حساب بنكي\n"
                 "• مسح حساب بنكي\n"
-                "• فلوسي\n"
-                "• حسابي البنكي\n"
-                "• راتب\n"
-                "• بقشيش\n"
+                "• فلوسي — حسابي البنكي\n"
+                "• راتب — بقشيش\n"
                 "• تحويل [مبلغ] (بالرد)\n"
                 "• سرقة (بالرد)\n"
                 "• استثمار [مبلغ]\n"
-                "• حظ [مبلغ]\n"
+                "• حظ [مبلغ]\n\n"
+                "*💍 الزواج:*\n"
+                "• زوجني — زواج\n"
+                "• زوجي — زوجتي\n"
+                "• طلاق\n"
+                "• طفل (بالرد على الزوج)\n"
+                "• رزق الأطفال\n\n"
+                "*🏠 الممتلكات:*\n"
+                "• اشتري عربية/قصر/برج/جزيرة/طيارة\n"
+                "• بيع\n\n"
                 "• توب الفلوس\n"
                 "• توب الحرامية")
     else:
         return ("📖 *الأوامر — إضافية*\n\n"
+                "*📊 معلومات:*\n"
                 "• إحصائياتي — إحصائياتك\n"
+                "• بياناتي — كل بياناتك\n"
                 "• توب — توب 10\n"
-                "• توب الفلوس — أغنى 10\n"
-                "• توب الحرامية — أكبر حرامية\n"
                 "• نظام النقاط — شرح النظام\n"
-                "• id — الآيدي بتاعك\n"
-                "• المكتومين\n"
-                "• المحظورين\n\n"
-                "*للمشرفين:*\n"
-                "• مسح [رقم] — مسح آخر رسايل\n"
+                "• الوقت — الساعة الحالية\n"
+                "• نكتة — ضحكة سريعة\n"
+                "• ذكرني بعد 5 دقايق [حاجة]\n\n"
+                "*👑 VIP:*\n"
+                "• قائمة VIP / المميزين\n"
+                "• رفع مميز (بالرد — مالك الجروب)\n"
+                "• مسح مميز (بالرد)\n"
+                "• مسح المميزين\n"
+                "• التوب: 3 صفحات (فلوس/حرامية/VIP)\n\n"
+                "*🛡 للمشرفين:*\n"
+                "• مسح [رقم] — مسح رسايل\n"
                 "• /say [نص] — البوت يبعت النص\n"
                 "• حظر / كتم / تحذير (بالرد)\n"
-                "• الغاء الحظر / الكتم / التحذير")
+                "• id — الآيدي")
 
 # ============ نهاية الجزء 5 ============
 
@@ -2708,22 +2890,22 @@ async def cb_stats_me(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     reply_markup=main_menu_kb(is_owner(q.from_user.id)))
 
 async def cb_stats_top(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """الصفحة 1: توب الفلوس"""
     q = update.callback_query; await q.answer()
-    # توب الفلوس من البنك
     top = db.get_top_money(10)
+    kb = M([
+        [B("▶️", callback_data="top:thieves"), B("🔙 رجوع", callback_data="panel:home")],
+    ])
     if not top:
-        return await safe_edit(q, "📊 لا يوجد حسابات بعد.",
-                              reply_markup=main_menu_kb(is_owner(q.from_user.id)))
-    lines = ["🏆 *توب 10 - أغنى أشخاص*\n"]
+        return await safe_edit(q, "🏆 *توب الفلوس*\n\n📭 لا يوجد حسابات بعد.",
+                              parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+    lines = ["🏆 *توب الفلوس - أغنى 10*\n"]
     medals = ["🥇","🥈","🥉"]
     for i, item in enumerate(top, 1):
         display = escape_html(item['first_name'] or "عضو")
         prefix = medals[i-1] if i <= 3 else f"{i}."
         lines.append(f"{prefix} {display} — *{fmt_money(item['balance'])}*")
-    kb = M([
-        [B("🥷 توب الحرامية", callback_data="top:thieves")],
-        [B("🔙 رجوع", callback_data="panel:home")],
-    ])
+    lines.append("\n_1/3_")
     await safe_edit(q, "\n".join(lines), parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
 
 # ==================== قائمة الأوامر ====================
@@ -2736,16 +2918,299 @@ async def cb_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ==================== المالك ====================
 async def cb_owner_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    if not is_owner(q.from_user.id): return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    if not can_access_owner_menu(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
     await q.answer(); db.clear_pending(q.from_user.id)
-    await safe_edit(q, owner_text(), parse_mode=ParseMode.MARKDOWN, reply_markup=owner_menu_kb())
+    # نعرض بس الأزرار المسموح بيها
+    is_main = is_owner(q.from_user.id)
+    rows = []
+    if is_main or has_perm(q.from_user.id, "subs"):
+        rows.append([B("📢 اشتراكات البوت", callback_data="owner:subs")])
+    if is_main or has_perm(q.from_user.id, "ar"):
+        rows.append([B("💬 الردود التلقائية", callback_data="owner:ar")])
+    if is_main or has_perm(q.from_user.id, "gban"):
+        rows.append([B("🚫 كلمات محظورة عامة", callback_data="owner:gban")])
+    if is_main or has_perm(q.from_user.id, "games"):
+        rows.append([B("🏆 إدارة الألعاب", callback_data="owner:games")])
+    if is_main or has_perm(q.from_user.id, "bank"):
+        rows.append([B("🏦 البنك", callback_data="owner:bank")])
+    if is_main or has_perm(q.from_user.id, "groups"):
+        rows.append([B("🌐 كل جروبات البوت", callback_data="owner:allgroups")])
+    if is_main or has_perm(q.from_user.id, "broadcast"):
+        rows.append([B("📣 بث لكل الجروبات", callback_data="owner:broadcast")])
+    if is_main or has_perm(q.from_user.id, "stats"):
+        rows.append([B("📊 إحصائيات البوت", callback_data="owner:stats")])
+    if is_main or has_perm(q.from_user.id, "devs"):
+        rows.append([B("👑 المطورين", callback_data="owner:devs")])
+    if is_main or has_perm(q.from_user.id, "db"):
+        rows.append([B("💾 قاعدة البيانات", callback_data="owner:db")])
+    rows.append([B("🔙 رجوع", callback_data="panel:home")])
+    title = "👑 *إعدادات المالك*" if is_main else "👑 *إعدادات المطور*"
+    await safe_edit(q, title + "\n\nاختر القسم:", parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=M(rows))
 
 # ===== إدارة البنك =====
+async def cb_owner_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """زر إحصائيات البوت في إعدادات المالك"""
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    groups = db.list_groups()
+    users_count = db.count_users()
+    me_id = getattr(ctx.bot, "_cached_id", None)
+    if not me_id:
+        me = await ctx.bot.get_me()
+        me_id = me.id
+        try: ctx.bot._cached_id = me_id
+        except: pass
+    active = []
+    for g in groups:
+        try:
+            member = await ctx.bot.get_chat_member(g["chat_id"], me_id)
+            if member.status in ("administrator", "creator"):
+                active.append(g)
+        except Exception:
+            pass
+    lines = ["📊 *إحصائيات البوت*", "",
+             f"👥 عدد المستخدمين: *{users_count}*",
+             f"🌐 المجموعات: {len(groups)}",
+             f"✅ المفعّلة: *{len(active)}*",
+             f"⛔ المعطّلة: *{len(groups)-len(active)}*",
+             f"💬 الردود: {len(db.list_auto_replies())}",
+             f"🚫 كلمات محظورة: {len(db.list_global_banned_words())}",
+             f"🎮 الألعاب: 17"]
+    if active:
+        lines += ["", "المفعّلة:"]
+        for g in active[:30]:
+            t = (g['title'] or str(g['chat_id'])).replace('*','').replace('_','').replace('`','').replace('[','').replace(']','')
+            lines.append(f"• {t} — {db.count_channels(g['chat_id'])} قناة")
+    await safe_edit(q, "\n".join(lines), parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=M([[B("🔙 رجوع", callback_data="owner:menu")]]))
+
+# ===== إدارة المطورين =====
+
+async def cb_owner_devs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """زر المطورين في إعدادات المالك"""
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    # نجيب المطورين
+    try:
+        devs = db.list_developers()
+    except:
+        devs = []
+    # نبني النص بدون Markdown
+    text = "👑 إدارة المطورين\n\n"
+    text += f"👤 المالك: {OWNER_ID}\n"
+    if not devs:
+        text += "\n📭 لا يوجد مطورين مضافين."
+    else:
+        text += f"\n👥 المطورين ({len(devs)}):\n"
+        for d in devs:
+            uname = f"@{d['username']}" if d.get('username') else "—"
+            fname = d['first_name'] or 'بدون'
+            text += f"• {fname} | {d['user_id']} | {uname}\n"
+    kb = M([
+        [B("➕ إضافة مطور", callback_data="devs:add")],
+        [B("⚙️ صلاحيات المطورين", callback_data="devs:perms_list")],
+        [B("🗑 حذف مطور", callback_data="devs:del_list")],
+        [B("🔙 رجوع", callback_data="owner:menu")],
+    ])
+    await safe_edit(q, text, reply_markup=kb)
+
+async def cb_devs_add(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    db.set_pending(q.from_user.id, PENDING_DEVS_ADD, extra="devs_add")
+    await safe_edit(q,
+        "➕ *إضافة مطور*\n\n"
+        "ابعت:\n"
+        "• الآيدي (ID)\n"
+        "• أو اعمل رد على رسالة المطور واكتب `add`\n\n"
+        "⚠️ المطور هيقدر يشوف إعدادات المالك",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=M([[B("🔙 رجوع", callback_data="owner:devs")]]))
+
+async def cb_devs_perms_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """عرض المطورين كأزرار لاختيار أحدهم وتعديل صلاحياته"""
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    try:
+        devs = db.list_developers()
+    except:
+        devs = []
+    if not devs:
+        try:
+            await q.edit_message_text(
+                "⚙️ صلاحيات المطورين\n\n📭 لا يوجد مطورين مضافين.",
+                reply_markup=M([[B("🔙 رجوع", callback_data="owner:devs")]]))
+        except: pass
+        return
+    rows = []
+    for d in devs:
+        name = (d.get('first_name') or str(d['user_id']))[:25]
+        rows.append([B(f"👤 {name}", callback_data=f"devs:perms:{d['user_id']}")])
+    rows.append([B("🔙 رجوع", callback_data="owner:devs")])
+    try:
+        await q.edit_message_text(
+            "⚙️ صلاحيات المطورين\n\nاختر مطور لعرض/تعديل صلاحياته:",
+            reply_markup=M(rows))
+    except Exception as e:
+        log.warning(f"cb_devs_perms_list error: {e}")
+
+async def cb_devs_perms(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """عرض صلاحيات مطور"""
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    try:
+        target = int(q.data.split(":")[2])
+    except (IndexError, ValueError):
+        return await q.answer("⚠️ خطأ", show_alert=True)
+    devs = db.list_developers()
+    dev = next((d for d in devs if d["user_id"] == target), None)
+    if not dev:
+        return await q.answer("❌ المطور مش موجود.", show_alert=True)
+    perms = db.get_all_dev_perms(target)
+    fname = dev.get("first_name") or str(target)
+    text = (f"⚙️ صلاحيات المطور\n\n"
+            f"👤 {fname}\n"
+            f"🆔 {target}\n\n"
+            "اضغط على أي صلاحية لتفعيلها/تعطيلها:")
+    rows = []
+    for key, label in db.DEV_PERMS:
+        status = "✅" if perms.get(key) else "❌"
+        rows.append([B(f"{status} {label}", callback_data=f"devs:perm:{target}:{key}")])
+    rows.append([B("🔙 رجوع", callback_data="owner:devs")])
+    await safe_edit(q, text, reply_markup=M(rows))
+
+
+async def cb_dev_perm_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """تبديل صلاحية: devs:perm:TARGET:KEY"""
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    parts = q.data.split(":")
+    if len(parts) < 4:
+        return await q.answer("⚠️ خطأ في البيانات", show_alert=True)
+    try:
+        target = int(parts[2])
+        key = parts[3]
+    except (IndexError, ValueError):
+        return await q.answer("⚠️ خطأ", show_alert=True)
+    new_val = db.toggle_dev_permission(target, key)
+    await q.answer("✅ تم التفعيل" if new_val else "❌ تم التعطيل")
+    # نعرض القائمة محدّثة
+    try:
+        devs = db.list_developers()
+        dev = next((d for d in devs if d["user_id"] == target), None)
+        if not dev:
+            return
+        perms = db.get_all_dev_perms(target)
+        fname = dev.get("first_name") or str(target)
+        text = (f"⚙️ صلاحيات المطور\n\n"
+                f"👤 {fname}\n"
+                f"🆔 {target}\n\n"
+                "اضغط على أي صلاحية لتفعيلها/تعطيلها:")
+        rows = []
+        for k, label in db.DEV_PERMS:
+            status = "✅" if perms.get(k) else "❌"
+            rows.append([B(f"{status} {label}", callback_data=f"devs:perm:{target}:{k}")])
+        rows.append([B("🔙 رجوع", callback_data="owner:devs")])
+        await q.edit_message_text(text, reply_markup=M(rows))
+    except Exception as e:
+        try: await q.message.reply_text(f"⚠️ {e}")
+        except: pass
+
+async def cb_devs_del_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    try:
+        devs = db.list_developers()
+    except:
+        devs = []
+    if not devs:
+        return await q.answer("📭 لا يوجد مطورين.", show_alert=True)
+    rows = []
+    for d in devs:
+        name = (d.get('first_name') or str(d['user_id']))[:25]
+        rows.append([B(f"⚙️ {name}", callback_data=f"devs:perms:{d['user_id']}")])
+        rows.append([B(f"🗑 حذف {name}", callback_data=f"devs:del:{d['user_id']}")])
+    rows.append([B("🔙 رجوع", callback_data="owner:devs")])
+    await safe_edit(q, "📋 *المطورين*\n\nاضغط على مطور لتعديل صلاحياته:\nأو احذفه:",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=M(rows))
+
+async def cb_devs_del(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    try:
+        target = int(q.data.split(":")[2])
+    except (IndexError, ValueError):
+        return await q.answer("⚠️ خطأ", show_alert=True)
+    try:
+        db.remove_developer(target)
+        await q.answer("✅ تم الحذف")
+    except:
+        await q.answer("❌ فشل", show_alert=True)
+    # نعيد عرض القائمة
+    try:
+        devs = db.list_developers()
+    except:
+        devs = []
+    if not devs:
+        try:
+            await q.edit_message_text("📭 لا يوجد مطورين.",
+                                      reply_markup=M([[B("🔙 رجوع", callback_data="owner:devs")]]))
+        except: pass
+        return
+    rows = []
+    for d in devs:
+        name = (d.get('first_name') or str(d['user_id']))[:25]
+        rows.append([B(f"🗑 {name}", callback_data=f"devs:del:{d['user_id']}")])
+    rows.append([B("🔙 رجوع", callback_data="owner:devs")])
+    try:
+        await q.edit_message_text("🗑 *اختر مطور للحذف:*", parse_mode=ParseMode.MARKDOWN, reply_markup=M(rows))
+    except: pass
+
 async def cb_owner_bank(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_owner(q.from_user.id): return await q.answer("⛔ للمالك فقط.", show_alert=True)
     await q.answer(); db.clear_pending(q.from_user.id)
     await safe_edit(q, owner_bank_text(), parse_mode=ParseMode.MARKDOWN, reply_markup=owner_bank_kb())
+
+async def cb_obank_marriage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    await safe_edit(q, owner_bank_marriage_text(), parse_mode=ParseMode.MARKDOWN, reply_markup=obank_marriage_kb())
+
+
+async def cb_obank_children(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    await safe_edit(q, owner_bank_children_text(), parse_mode=ParseMode.MARKDOWN, reply_markup=obank_children_kb())
+
+
+async def cb_obank_props(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    await safe_edit(q, owner_bank_props_text(), parse_mode=ParseMode.MARKDOWN, reply_markup=obank_props_kb())
 
 async def cb_obank_salary(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -2798,6 +3263,16 @@ async def cb_obank_set(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "invest_cooldown": "⏰ اكتب كول داون الاستثمار بالثواني:",
         "luck_win_pct": "🎯 اكتب نسبة الفوز (0-100):",
         "luck_cooldown": "⏰ اكتب كول داون الحظ بالثواني:",
+        "marriage_cost": "💰 اكتب تكلفة الزواج:",
+        "divorce_refund": "💸 اكتب استرداد الطلاق:",
+        "child_cost": "💰 اكتب تكلفة الطفل:",
+        "child_income": "💵 اكتب ربح الطفل/ساعة:",
+        "max_children": "👥 اكتب أقصى عدد أطفال:",
+        "child_cooldown": "⏰ اكتب كول داون الطفل (ثواني):",
+        "prop_cost": "💰 اكتب تكلفة الممتلك:",
+        "prop_sell_min": "📉 اكتب أقل نسبة ربح (0-100):",
+        "prop_sell_max": "📈 اكتب أكبر نسبة ربح (0-100):",
+        "prop_cooldown": "⏰ اكتب كول داون الممتلكات (ثواني):",
     }
     await safe_edit(q, prompts.get(key, "✍️ اكتب القيمة الجديدة:"),
                     parse_mode=ParseMode.MARKDOWN, reply_markup=cancel_kb(PENDING_BANK_SETTING))
@@ -3043,6 +3518,106 @@ async def cb_ar_del(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ============ بداية الجزء 7 — إدارة الألعاب ============
 
 # ===== إدارة الألعاب =====
+async def cb_owner_jokes(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer(); db.clear_pending(q.from_user.id)
+    await safe_edit(q, owner_jokes_text(), parse_mode=ParseMode.MARKDOWN, reply_markup=owner_jokes_kb())
+
+
+async def cb_jokes_add(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    db.set_pending(q.from_user.id, PENDING_BROADCAST, extra="jokes_add")
+    await safe_edit(q,
+        "➕ *إضافة نكتة*\n\n"
+        "ابعت النكتة (أو أكتر، كل واحدة في سطر):",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=M([[B("🔙 رجوع", callback_data="owner:jokes")]]))
+
+
+async def cb_jokes_del_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    jokes = db.list_jokes()
+    if not jokes:
+        return await q.answer("📭 مفيش نكت.", show_alert=True)
+    await safe_edit(q, "🗑 *اختر نكتة للحذف:*", parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=owner_jokes_delete_kb(jokes))
+
+
+async def cb_jokes_del(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    try:
+        jid = int(q.data.split(":")[2])
+    except:
+        return await q.answer("⚠️ خطأ", show_alert=True)
+    if db.remove_joke(jid):
+        await q.answer("✅ تم الحذف")
+    else:
+        await q.answer("❌ فشل", show_alert=True)
+    jokes = db.list_jokes()
+    if not jokes:
+        await safe_edit(q, owner_jokes_text(), parse_mode=ParseMode.MARKDOWN, reply_markup=owner_jokes_kb())
+        return
+    await safe_edit(q, "🗑 *اختر نكتة للحذف:*", parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=owner_jokes_delete_kb(jokes))
+
+
+async def cb_jokes_show(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    jokes = db.list_jokes()
+    if not jokes:
+        return await safe_edit(q, "📭 مفيش نكت.", reply_markup=owner_jokes_kb())
+    lines = [f"📋 *النكت* ({len(jokes)})\n"]
+    for i, j in enumerate(jokes[:50], 1):
+        lines.append(f"{i}. {j['text']}")
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:4000] + "\n..."
+    await safe_edit(q, text, parse_mode=ParseMode.MARKDOWN, reply_markup=owner_jokes_kb())
+
+
+async def cb_jokes_cooldown(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    db.set_pending(q.from_user.id, PENDING_BANK_SETTING, extra="joke_cooldown")
+    await safe_edit(q, "⏱ اكتب كول داون النكتة بالثواني:",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=M([[B("🔙 رجوع", callback_data="owner:jokes")]]))
+
+
+# ============ التذكيرات ============
+async def cb_owner_reminders(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer(); db.clear_pending(q.from_user.id)
+    await safe_edit(q, owner_reminders_text(), parse_mode=ParseMode.MARKDOWN, reply_markup=owner_reminders_kb())
+
+
+async def cb_reminders_set(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_owner(q.from_user.id):
+        return await q.answer("⛔ للمالك فقط.", show_alert=True)
+    await q.answer()
+    db.set_pending(q.from_user.id, PENDING_BANK_SETTING, extra="reminder_max")
+    await safe_edit(q, "⏰ اكتب أقصى وقت للتذكير بالثواني:",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=M([[B("🔙 رجوع", callback_data="owner:reminders")]]))
+
 async def cb_owner_games(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_owner(q.from_user.id): return await q.answer("⛔ للمالك فقط.", show_alert=True)
@@ -4010,17 +4585,13 @@ async def send_welcome(bot, chat_id, user):
     if not g["activated"]:
         return
     name = user.first_name or "عضو"
-    text = (f"👋 أهلاً <a href=\"tg://user?id={user.id}\">{escape_html(name)}</a>\n\n"
-            f"🤖 *بوت Laila*\n\n"
-            f"✨ بيعمل إيه؟\n"
-            f"🛡 اشتراك إجباري للقنوات\n"
-            f"⚙️ إدارة جروبات وحماية\n"
-            f"🎮 ألعاب ومسابقات\n"
-            f"🏆 نظام نقاط وجنيهات\n\n"
-            f"👈 اكتب *الألعاب* عشان تشوف الألعاب\n"
-            f"👈 اكتب *فلوسي* عشان تشوف رصيدك\n"
-            f"👈 اكتب *الأوامر* عشان تشوف كل الأوامر")
-    try: await bot.send_message(chat_id, text, parse_mode=ParseMode.MARKDOWN)
+    # لو فيه جملة ترحيب مخصصة
+    custom = g.get("welcome_text", "")
+    if custom:
+        text = custom.replace("{name}", f'<a href="tg://user?id={user.id}">{escape_html(name)}</a>')
+    else:
+        text = f'👋 أهلاً <a href="tg://user?id={user.id}">{escape_html(name)}</a>'
+    try: await bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
     except: pass
 
 # ===== معالجة النصوص المنتظرة =====
@@ -4364,6 +4935,50 @@ async def handle_pending_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
             reply_markup=owner_menu_kb())
         return True
 
+    # ===== إضافة نكتة =====
+    if extra == "jokes_add":
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        added = 0
+        for line in lines:
+            if len(line) >= 5:
+                db.add_joke(line, uid)
+                added += 1
+        db.clear_pending(uid)
+        await update.message.reply_text(
+            f"✅ تم إضافة *{added}* نكتة.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=owner_jokes_kb())
+        return True
+
+    # ===== إضافة مطور =====
+    if extra == "devs_add":
+        # نشوف لو رسالة فيها ID
+        nums = re.findall(r"\d+", normalize_digits(text))
+        if not nums:
+            return await update.message.reply_text("⚠️ ابعت ID صحيح."), True
+        target = int(nums[0])
+        if target == OWNER_ID:
+            db.clear_pending(uid)
+            return await update.message.reply_text("⚠️ ده المالك، مش محتاج إضافة."), True
+        # نجيب معلوماته لو موجود
+        try:
+            u = db.get_user(target)
+            first_name = u["first_name"] if u else None
+            username = u["username"] if u else None
+        except:
+            first_name, username = None, None
+        db.add_developer(target, first_name, username, uid)
+        # نفعّل كل الصلاحيات افتراضي
+        for key, _ in db.DEV_PERMS:
+            db.set_dev_permission(target, key, False)
+        db.clear_pending(uid)
+        await update.message.reply_text(
+            f"✅ تم إضافة المطور: `{target}`\n\n"
+            "⚠️ لسه محتاج تفعّل صلاحياته من قائمة المطورين.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=M([[B("👑 المطورين", callback_data="owner:devs")]]))
+        return True
+
     # ===== استعادة قاعدة البيانات =====
     if target == PENDING_BROADCAST and extra == "import_db":
         return False  # بيتعامل معاه في الدوال اللي تحت
@@ -4628,6 +5243,44 @@ async def on_group_msg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(points_system_text(), parse_mode=ParseMode.MARKDOWN)
             except: pass
             return
+        # ===== الزواج =====
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_MARRY]:
+            return await cmd_marry(update, ctx, cid, uid)
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_PARTNER]:
+            return await cmd_partner(update, ctx, uid)
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_DIVORCE]:
+            return await cmd_divorce(update, ctx, uid)
+        # ===== الأطفال =====
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_CHILD]:
+            return await cmd_child(update, ctx, cid, uid)
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_CHILD_INCOME]:
+            return await cmd_child_income(update, ctx, uid)
+        # ===== الممتلكات =====
+        if any(normalize_text(text).startswith(normalize_text(t)) for t in ("اشتري", "اشتريت", "شراء")):
+            return await cmd_buy_property(update, ctx, uid, text)
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_SELL]:
+            return await cmd_sell_property(update, ctx, uid)
+        # ===== VIP =====
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_VIP_LIST]:
+            return await cmd_vip_list(update, ctx, cid)
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_VIP_ADD]:
+            return await cmd_vip_add(update, ctx, cid, uid, user)
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_VIP_REMOVE]:
+            return await cmd_vip_remove(update, ctx, cid, uid)
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_VIP_REMOVE_ALL]:
+            return await cmd_vip_remove_all(update, ctx, cid, uid)
+        # ===== الوقت =====
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_TIME]:
+            return await cmd_time(update, ctx)
+        # ===== النكتة =====
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_JOKE]:
+            return await cmd_joke(update, ctx, uid)
+        # ===== التذكيرات =====
+        if normalize_text(text).startswith(normalize_text("ذكرني")) or normalize_text(text).startswith(normalize_text("فكرني")):
+            return await cmd_remind(update, ctx, uid, text)
+        # ===== بياناتي =====
+        if normalize_text(text) in [normalize_text(t) for t in TRIGGER_MY_DATA]:
+            return await cmd_my_data(update, ctx, cid, uid, user)
         if normalize_text(text) in [normalize_text(t) for t in TRIGGER_MY_MONEY]:
             return await update.message.reply_text(
                 await build_my_money_reply(cid, uid, user.first_name),
@@ -4823,6 +5476,480 @@ async def _delete_after(bot, chat_id, message_id, seconds):
     await asyncio.sleep(seconds)
     try: await bot.delete_message(chat_id, message_id)
     except: pass
+
+# ==================== الزواج ====================
+async def cmd_marry(update, ctx, cid, uid):
+    """زواج"""
+    MARRIAGE_COST = db.get_bank_setting("marriage_cost", 5000)
+    user = update.effective_user
+    # نتأكد إنه مش متجوز
+    cur = db.get_marriage(uid)
+    if cur:
+        partner = db.get_user(cur["partner_id"])
+        name = partner["first_name"] if partner else f"عضو {cur['partner_id']}"
+        return await update.message.reply_text(
+            f"💍 إنت متجوز بالفعل!\nزوجك: {name}",
+            parse_mode=ParseMode.MARKDOWN)
+    # نتأكد من الفلوس
+    acc = db.get_bank_account(uid)
+    if not acc:
+        return await update.message.reply_text(
+            "⚠️ لازم تعمل حساب بنكي الأول: *إنشاء حساب بنكي*",
+            parse_mode=ParseMode.MARKDOWN)
+    if acc["balance"] < MARRIAGE_COST:
+        return await update.message.reply_text(
+            f"⚠️ محتاج *{fmt_money(MARRIAGE_COST)}* عشان تتجوز.\n"
+            f"رصيدك: {fmt_money(acc['balance'])}",
+            parse_mode=ParseMode.MARKDOWN)
+    # نجيب الأعضاء في الجروب
+    members = db.list_members(cid)
+    # نشيل نفسه والمتجوزين
+    available = []
+    for m in members:
+        if m["user_id"] == uid:
+            continue
+        if db.get_marriage(m["user_id"]):
+            continue
+        available.append(m)
+    if not available:
+        return await update.message.reply_text("⚠️ مفيش حد متاح للزواج في الجروب ده 😅")
+    # نختار عشوائي
+    chosen = random.choice(available)
+    # نخصم الفلوس
+    db.deduct_bank_money(uid, MARRIAGE_COST, "marriage")
+    db.set_marriage(uid, chosen["user_id"])
+    # نضيف نقاط للمتزوج الجديد
+    await update.message.reply_text(
+        f"💍 مبروك!\n\n"
+        f"<a href=\"tg://user?id={uid}\">{escape_html(user.first_name)}</a> "
+        f"اتجوز "
+        f"<a href=\"tg://user?id={chosen['user_id']}\">{escape_html(chosen['first_name'])}</a>\n\n"
+        f"💰 دفع *{fmt_money(MARRIAGE_COST)}*",
+        parse_mode=ParseMode.HTML)
+
+
+async def cmd_partner(update, ctx, uid):
+    """زوجي / زوجتي"""
+    m = db.get_marriage(uid)
+    if not m:
+        return await update.message.reply_text(
+            "💔 إنت مش متجوز لسه.\nاكتب *زوجني* عشان تتجوز.",
+            parse_mode=ParseMode.MARKDOWN)
+    partner = db.get_user(m["partner_id"])
+    if not partner:
+        return await update.message.reply_text(f"💍 زوجك: عضو {m['partner_id']}")
+    await update.message.reply_text(
+        f"💍 زوجك هو: <a href=\"tg://user?id={m['partner_id']}\">{escape_html(partner['first_name'])}</a>",
+        parse_mode=ParseMode.HTML)
+
+
+async def cmd_divorce(update, ctx, uid):
+    """طلاق"""
+    DIVORCE_REFUND = db.get_bank_setting("divorce_refund", 3000)
+    m = db.get_marriage(uid)
+    if not m:
+        return await update.message.reply_text("💔 إنت مش متجوز أساساً 😅")
+    partner = m["partner_id"]
+    # نشوف الأطفال قبل الطلاق
+    my_children = db.get_children(uid)
+    partner_children = db.get_children(partner)
+    all_children = my_children + partner_children
+    has_children = len(all_children) > 0
+    # ننقل الأطفال عشوائي
+    moved_info = []
+    if has_children:
+        # نجيب أسماء الطرفين
+        u1 = db.get_user(uid)
+        u2 = db.get_user(partner)
+        n1 = u1["first_name"] if u1 else f"عضو {uid}"
+        n2 = u2["first_name"] if u2 else f"عضو {partner}"
+        # نقل عشوائي
+        for k in all_children:
+            new_owner = random.choice([uid, partner])
+            try:
+                db.transfer_children_random(uid, partner)
+            except: pass
+        # نعرض ملخص (مش كل طفل، بس العدد لكل واحد)
+        kids_1 = db.count_children(uid)
+        kids_2 = db.count_children(partner)
+        moved_info.append(f"👶 *{n1}:* {kids_1} طفل")
+        moved_info.append(f"👶 *{n2}:* {kids_2} طفل")
+    # نعمل الطلاق
+    db.divorce(uid)
+    # نرجّع الفلوس
+    acc = db.get_bank_account(uid)
+    if acc:
+        db.add_bank_money(uid, DIVORCE_REFUND, "divorce_refund")
+    # نبني الرسالة
+    text = (
+        f"💔 *تم الطلاق*\n\n"
+        f"💰 استرددت: *{fmt_money(DIVORCE_REFUND)}*"
+    )
+    if has_children:
+        text += "\n\n👶 *توزيع الأطفال:*\n" + "\n".join(moved_info)
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+
+# ==================== الأطفال ====================
+async def cmd_child(update, ctx, cid, uid):
+    """خلف طفل"""
+    CHILD_COST = db.get_bank_setting("child_cost", 500)
+    MAX_CHILDREN = db.get_bank_setting("max_children", 5)
+    CHILD_COOLDOWN = db.get_bank_setting("child_cooldown", 86400)
+    # لازم رد على الزوج/الزوجة
+    if not update.message.reply_to_message:
+        return await update.message.reply_text(
+            "⚠️ لازم ترد على رسالة زوجك/زوجتك عشان تخلفوا 👶",
+            parse_mode=ParseMode.MARKDOWN)
+    target = update.message.reply_to_message.from_user
+    if not target or target.is_bot:
+        return await update.message.reply_text("⚠️ مستخدم غير صالح.")
+    # نتأكد إنهم متجوزين
+    m = db.get_marriage(uid)
+    if not m or m["partner_id"] != target.id:
+        return await update.message.reply_text(
+            f"😔 حرام يا أخ!\n"
+            f"إنت مش متجوز <a href=\"tg://user?id={target.id}\">{escape_html(target.first_name)}</a>\n\n"
+            f"الخلفة بتحصل بين المتجوزين بس 💍",
+            parse_mode=ParseMode.HTML)
+    # نتأكد من الأطفال
+    count = db.count_children(uid)
+    if count >= MAX_CHILDREN:
+        return await update.message.reply_text(
+            f"⚠️ وصلت للحد الأقصى ({MAX_CHILDREN} أطفال).",
+            parse_mode=ParseMode.MARKDOWN)
+    # طفل واحد في اليوم
+    today = int(time.time()) // 86400
+    kids = db.get_children(uid)
+    for k in kids:
+        if k["born_at"] // 86400 == today:
+            return await update.message.reply_text("⚠️ إنت خلفت طفل النهاردة! استنى بكرة.")
+    # نتأكد من الفلوس
+    acc = db.get_bank_account(uid)
+    if not acc or acc["balance"] < CHILD_COST:
+        return await update.message.reply_text(
+            f"⚠️ محتاج *{fmt_money(CHILD_COST)}* عشان تخلف.",
+            parse_mode=ParseMode.MARKDOWN)
+    # نخصم ونضيف
+    db.deduct_bank_money(uid, CHILD_COST, "child")
+    db.add_child(uid, target.id)
+    await update.message.reply_text(
+        f"👶 مبروك!\n\n"
+        f"اتولد طفل جديد لـ <a href=\"tg://user?id={uid}\">{escape_html(update.effective_user.first_name)}</a> "
+        f"و <a href=\"tg://user?id={target.id}\">{escape_html(target.first_name)}</a>\n\n"
+        f"💰 التكلفة: *{fmt_money(CHILD_COST)}*\n"
+        f"👶 عندك {count+1} طفل",
+        parse_mode=ParseMode.HTML)
+
+
+async def cmd_child_income(update, ctx, uid):
+    """رزق الأطفال"""
+    CHILD_INCOME = db.get_bank_setting("child_income", 100)
+    kids = db.get_children(uid)
+    if not kids:
+        return await update.message.reply_text("⚠️ ماعندكش أطفال لسه.")
+    total = 0
+    now = int(time.time())
+    for k in kids:
+        # كل ساعة
+        if now - k["last_income"] >= 3600:
+            total += CHILD_INCOME
+            db.update_child_income(k["id"], now)
+    if total == 0:
+        return await update.message.reply_text("⏰ استنى شوية قبل ما تجيب رزق الأطفال تاني.")
+    db.add_bank_money(uid, total, "child_income")
+    await update.message.reply_text(
+        f"👶 *رزق الأطفال*\n\n"
+        f"عدد الأطفال: *{len(kids)}*\n"
+        f"💰 كسبت: *{fmt_money(total)}*",
+        parse_mode=ParseMode.MARKDOWN)
+
+# ==================== الممتلكات ====================
+
+PROP_NAMES = {
+    "car": "🚗 عربية",
+    "palace": "🏠 قصر",
+    "tower": "🏢 برج",
+    "island": "🏝 جزيرة",
+    "plane": "✈️ طيارة",
+}
+
+PROP_ALIASES = {
+    "عربية": "car", "عربيه": "car", "سيارة": "car", "سياره": "car",
+    "قصر": "palace", "بيت": "palace",
+    "برج": "tower", "عمارة": "tower", "عماره": "tower",
+    "جزيرة": "island", "جزيره": "island",
+    "طيارة": "plane", "طياره": "plane", "طائرة": "plane", "طايره": "plane",
+}
+
+
+async def cmd_buy_property(update, ctx, uid, text):
+    """شراء ممتلكات"""
+    PROP_COST = db.get_bank_setting("prop_cost", 1000)
+    PROP_COOLDOWN = db.get_bank_setting("prop_cooldown", 600)
+    # نلاقي اسم الممتلك
+    norm = normalize_text(text)
+    # نشيل "اشتري"
+    for prefix in ["اشتري", "اشتريت", "شراء", "اشترى"]:
+        if norm.startswith(normalize_text(prefix)):
+            norm = norm[len(prefix):].strip()
+            break
+    # نلاقي النوع
+    prop_type = None
+    for alias, ptype in PROP_ALIASES.items():
+        if normalize_text(alias) in norm:
+            prop_type = ptype
+            break
+    if not prop_type:
+        return await update.message.reply_text(
+            "⚠️ اكتب نوع الممتلك:\n"
+            "مثال: `اشتري عربية` أو `اشتري قصر`",
+            parse_mode=ParseMode.MARKDOWN)
+    # نتأكد من الفلوس
+    acc = db.get_bank_account(uid)
+    if not acc or acc["balance"] < PROP_COST:
+        return await update.message.reply_text(
+            f"⚠️ محتاج *{fmt_money(PROP_COST)}*.",
+            parse_mode=ParseMode.MARKDOWN)
+    # الكول داون
+    props = db.list_properties(uid)
+    if props:
+        last = props[0]["bought_at"]
+        elapsed = int(time.time()) - last
+        if elapsed < PROP_COOLDOWN:
+            remaining = PROP_COOLDOWN - elapsed
+            return await update.message.reply_text(
+                f"⏰ استنى *{fmt_time(remaining)}* قبل ما تشتري تاني.",
+                parse_mode=ParseMode.MARKDOWN)
+    # نخصم
+    db.deduct_bank_money(uid, PROP_COST, "property")
+    db.buy_property(uid, prop_type, PROP_COST)
+    pname = PROP_NAMES.get(prop_type, prop_type)
+    new_acc = db.get_bank_account(uid)
+    await update.message.reply_text(
+        f"✅ اشتريت *{pname}*!\n\n"
+        f"💰 التكلفة: {fmt_money(PROP_COST)}\n"
+        f"💵 رصيدك: {fmt_money(new_acc['balance'])}",
+        parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_sell_property(update, ctx, uid):
+    """بيع ممتلكات"""
+    props = db.list_properties(uid)
+    if not props:
+        return await update.message.reply_text("⚠️ ماعندكش ممتلكات.")
+    # نبيع آخر ممتلك
+    last = props[0]
+    result = db.sell_property(last["id"])
+    if not result:
+        return await update.message.reply_text("❌ فشل البيع.")
+    # نضيف ربح من الإعدادات
+    MIN_PCT = db.get_bank_setting("prop_sell_min", 1)
+    MAX_PCT = db.get_bank_setting("prop_sell_max", 25)
+    pct = random.randint(MIN_PCT, MAX_PCT)
+    profit_pct = last["bought_price"] * pct // 100
+    total = last["bought_price"] + profit_pct
+    db.add_bank_money(uid, total, "sell_property")
+    pname = PROP_NAMES.get(last["prop_type"], last["prop_type"])
+    new_acc = db.get_bank_account(uid)
+    await update.message.reply_text(
+        f"✅ بعت *{pname}*!\n\n"
+        f"💰 سعر الشراء: {fmt_money(last['bought_price'])}\n"
+        f"📈 الربح: *+{pct}%* ({fmt_money(profit_pct)})\n"
+        f"💵 الإجمالي: *{fmt_money(total)}*\n"
+        f"🏦 رصيدك: {fmt_money(new_acc['balance'])}",
+        parse_mode=ParseMode.MARKDOWN)
+
+
+# ==================== VIP ====================
+async def cmd_vip_list(update, ctx, cid):
+    """قائمة VIP"""
+    vips = db.list_vips(cid)
+    if not vips:
+        return await update.message.reply_text("📭 مفيش أعضاء مميزين لسه.")
+    lines = [f"👑 *قائمة VIP* ({len(vips)})\n"]
+    for uid in vips[:50]:
+        u = db.get_user(uid)
+        if u:
+            lines.append(f"• <a href=\"tg://user?id={uid}\">{escape_html(u['first_name'])}</a>")
+        else:
+            lines.append(f"• عضو {uid}")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def cmd_vip_add(update, ctx, cid, uid, user):
+    """رفع مميز — للمالك/المشرف بس"""
+    if not (is_owner(uid) or await is_user_admin(ctx.bot, cid, uid)):
+        return
+    if not update.message.reply_to_message:
+        return await update.message.reply_text("⚠️ لازم ترد على رسالة العضو.", parse_mode=ParseMode.MARKDOWN)
+    target = update.message.reply_to_message.from_user
+    if not target or target.is_bot:
+        return
+    db.add_vip(cid, target.id, uid)
+    await update.message.reply_text(
+        f"👑 تم رفع <a href=\"tg://user?id={target.id}\">{escape_html(target.first_name)}</a> مميز!",
+        parse_mode=ParseMode.HTML)
+
+
+async def cmd_vip_remove(update, ctx, cid, uid):
+    """مسح مميز — للمالك/المشرف بس"""
+    if not (is_owner(uid) or await is_user_admin(ctx.bot, cid, uid)):
+        return
+    if not update.message.reply_to_message:
+        return await update.message.reply_text("⚠️ لازم ترد على رسالة العضو.", parse_mode=ParseMode.MARKDOWN)
+    target = update.message.reply_to_message.from_user
+    db.remove_vip(cid, target.id)
+    await update.message.reply_text(
+        f"✅ تم إزالة التمييز عن <a href=\"tg://user?id={target.id}\">{escape_html(target.first_name)}</a>",
+        parse_mode=ParseMode.HTML)
+
+
+async def cmd_vip_remove_all(update, ctx, cid, uid):
+    """مسح كل المميزين"""
+    if not (is_owner(uid) or await is_user_admin(ctx.bot, cid, uid)):
+        return
+    count = db.remove_all_vips(cid)
+    await update.message.reply_text(f"✅ تم مسح *{count}* عضو مميز.",
+                                    parse_mode=ParseMode.MARKDOWN)
+
+
+# ==================== الوقت ====================
+async def cmd_time(update, ctx):
+    """الوقت الحالي"""
+    now = time.time()
+    t = time.strftime("%H:%M:%S", time.localtime(now))
+    d = time.strftime("%Y-%m-%d", time.localtime(now))
+    await update.message.reply_text(
+        f"🕐 *الوقت الحالي*\n\n"
+        f"⏰ الساعة: *{t}*\n"
+        f"📅 التاريخ: {d}",
+        parse_mode=ParseMode.MARKDOWN)
+
+
+# ==================== النكتة ====================
+async def cmd_joke(update, ctx, uid):
+    """نكتة"""
+    JOKE_COOLDOWN = db.get_bank_setting("joke_cooldown", 600)
+    now = int(time.time())
+    last = db.get_last_joke_time(uid)
+    if now - last < JOKE_COOLDOWN:
+        remaining = JOKE_COOLDOWN - (now - last)
+        return await update.message.reply_text(
+            f"⏰ استنى *{fmt_time(remaining)}* قبل ما تطلب نكتة تاني.",
+            parse_mode=ParseMode.MARKDOWN)
+    # نجيب نكتة عشوائية
+    j = db.get_random_joke()
+    if not j:
+        return await update.message.reply_text(
+            "⚠️ مفيش نكت مسجلة. المالك يقدر يضيف نكت من إعدادات الألعاب.",
+            parse_mode=ParseMode.MARKDOWN)
+    db.set_joke_time(uid, now)
+    await update.message.reply_text(f"😂 {j['text']}")
+
+async def cmd_joke(update, ctx, uid):
+    """نكتة"""
+    now = int(time.time())
+    last = db.get_last_joke_time(uid)
+    if now - last < 600:  # 10 دقايق
+        remaining = 600 - (now - last)
+        return await update.message.reply_text(
+            f"⏰ استنى *{fmt_time(remaining)}* قبل ما تطلب نكتة تاني.",
+            parse_mode=ParseMode.MARKDOWN)
+    db.set_joke_time(uid, now)
+    joke = random.choice(JOKES)
+    await update.message.reply_text(f"😂 {joke}")
+
+
+# ==================== التذكيرات ====================
+async def cmd_remind(update, ctx, uid, text):
+    """ذكرني [حاجة]"""
+    # الصيغ:
+    # ذكرني بعد 5 دقايق [حاجة]
+    # ذكرني بعد 2 ساعات [حاجة]
+    # ذكرني بعد 30 ثانية [حاجة]
+    # ذكرني [حاجة] (بعد ساعة افتراضي)
+    body = text
+    for prefix in ["ذكرني", "ذكرنى", "فكرني"]:
+        if normalize_text(body).startswith(normalize_text(prefix)):
+            body = body[len(prefix):].strip()
+            break
+    seconds = 3600  # افتراضي ساعة
+    # نشوف لو فيه "بعد X دقيقة/ساعة/ثانية"
+    m = re.match(r"بعد\s+(\d+)\s*(ثانية|ثانيه|ث|دقيقة|دقيقه|د|ساعة|ساعه|س|يوم|يومين|أيام|ايام)?", body)
+    if m:
+        n = int(normalize_digits(m.group(1)))
+        unit = m.group(2) or "دقيقة"
+        unit = unit.strip()
+        if unit in ("ثانية", "ثانيه", "ث"):
+            seconds = n
+        elif unit in ("دقيقة", "دقيقه", "د"):
+            seconds = n * 60
+        elif unit in ("ساعة", "ساعه", "س"):
+            seconds = n * 3600
+        elif unit in ("يوم", "يومين", "أيام", "ايام"):
+            seconds = n * 86400
+        body = body[m.end():].strip()
+    if not body:
+        body = "تذكير"
+    if seconds < 10:
+        seconds = 10
+    REMINDER_MAX = db.get_bank_setting("reminder_max", 604800)
+    if seconds > REMINDER_MAX:
+        seconds = REMINDER_MAX
+    remind_at = int(time.time()) + seconds
+    db.add_reminder(update.effective_chat.id, uid, body, remind_at)
+    await update.message.reply_text(
+        f"⏰ *تم التذكير*\n\n"
+        f"📌 {body}\n"
+        f"⏱ بعد: {fmt_time(seconds)}",
+        parse_mode=ParseMode.MARKDOWN)
+
+
+# ==================== بياناتي ====================
+async def cmd_my_data(update, ctx, cid, uid, user):
+    """بياناتي"""
+    p = db.get_points(cid, uid)
+    acc = db.get_bank_account(uid)
+    balance = acc["balance"] if acc else 0
+    rank = get_bank_rank(uid) or "غير مصنف"
+    # الزواج
+    m = db.get_marriage(uid)
+    if m:
+        partner = db.get_user(m["partner_id"])
+        pname = partner["first_name"] if partner else f"عضو {m['partner_id']}"
+        marriage_str = f"💍 متجوز: {pname}"
+    else:
+        marriage_str = "💔 أعزب"
+    # الأطفال
+    children = db.count_children(uid)
+    # الممتلكات
+    props = db.list_properties(uid)
+    props_str = ""
+    if props:
+        counts = {}
+        for p in props:
+            counts[p["prop_type"]] = counts.get(p["prop_type"], 0) + 1
+        for ptype, cnt in counts.items():
+            props_str += f"  • {PROP_NAMES.get(ptype, ptype)} × {cnt}\n"
+    else:
+        props_str = "  📭 مفيش ممتلكات\n"
+    # VIP
+    vip_mark = " 👑" if db.is_vip(cid, uid) else ""
+    text = (
+        f"👤 *بياناتك*{vip_mark}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📛 الاسم: {escape_html(user.first_name or '')}\n"
+        f"🆔 الآيدي: `{uid}`\n"
+        f"👤 اليوزر: @{user.username or '—'}\n\n"
+        f"{marriage_str}\n"
+        f"👶 الأطفال: *{children}*\n\n"
+        f"💰 الفلوس: *{fmt_money(balance)}*\n"
+        f"🏆 الانتصارات: *{p['wins']}*\n"
+        f"🏅 الترتيب العام: *#{rank}*\n\n"
+        f"🏠 *الممتلكات:*\n{props_str}"
+    )
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 async def handle_admin_text(update, ctx, cid, uid, text, user):
     try:
@@ -5202,6 +6329,7 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_stats_top, pattern=r"^stats:top$"))
     application.add_handler(CallbackQueryHandler(cb_top_thieves, pattern=r"^top:thieves$"))
     application.add_handler(CallbackQueryHandler(cb_top_money_btn, pattern=r"^top:money$"))
+    application.add_handler(CallbackQueryHandler(cb_top_vip, pattern=r"^top:vip$"))
     # أوامر
     application.add_handler(CallbackQueryHandler(cb_commands, pattern=r"^commands:show:"))
     # (cb_points_info اتشال)
@@ -5209,8 +6337,19 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_sub_check, pattern=r"^sub:ck:"))
     # مالك
     application.add_handler(CallbackQueryHandler(cb_owner_menu, pattern=r"^owner:menu$"))
+    application.add_handler(CallbackQueryHandler(cb_owner_stats, pattern=r"^owner:stats$"))
+    application.add_handler(CallbackQueryHandler(cb_owner_devs, pattern=r"^owner:devs$"))
+    application.add_handler(CallbackQueryHandler(cb_devs_add, pattern=r"^devs:add$"))
+    application.add_handler(CallbackQueryHandler(cb_devs_del_list, pattern=r"^devs:del_list$"))
+    application.add_handler(CallbackQueryHandler(cb_devs_del, pattern=r"^devs:del:"))
+    application.add_handler(CallbackQueryHandler(cb_dev_perm_toggle, pattern=r"^devs:perm:"))
+    application.add_handler(CallbackQueryHandler(cb_devs_perms_list, pattern=r"^devs:perms_list$"))
+    application.add_handler(CallbackQueryHandler(cb_devs_perms, pattern=r"^devs:perms:"))
     application.add_handler(CallbackQueryHandler(cb_owner_bank, pattern=r"^owner:bank$"))
     application.add_handler(CallbackQueryHandler(cb_obank_salary, pattern=r"^obank:salary$"))
+    application.add_handler(CallbackQueryHandler(cb_obank_marriage, pattern=r"^obank:marriage$"))
+    application.add_handler(CallbackQueryHandler(cb_obank_children, pattern=r"^obank:children$"))
+    application.add_handler(CallbackQueryHandler(cb_obank_props, pattern=r"^obank:props$"))
     application.add_handler(CallbackQueryHandler(cb_obank_tip, pattern=r"^obank:tip$"))
     application.add_handler(CallbackQueryHandler(cb_obank_steal, pattern=r"^obank:steal$"))
     application.add_handler(CallbackQueryHandler(cb_obank_invest, pattern=r"^obank:invest$"))
@@ -5240,6 +6379,14 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_ar_show, pattern=r"^ar:show$"))
     application.add_handler(CallbackQueryHandler(cb_ar_del_list, pattern=r"^ar:del_list$"))
     application.add_handler(CallbackQueryHandler(cb_ar_del, pattern=r"^ar:del:"))
+    application.add_handler(CallbackQueryHandler(cb_owner_jokes, pattern=r"^owner:jokes$"))
+    application.add_handler(CallbackQueryHandler(cb_owner_reminders, pattern=r"^owner:reminders$"))
+    application.add_handler(CallbackQueryHandler(cb_jokes_add, pattern=r"^jokes:add$"))
+    application.add_handler(CallbackQueryHandler(cb_jokes_del_list, pattern=r"^jokes:del_list$"))
+    application.add_handler(CallbackQueryHandler(cb_jokes_del, pattern=r"^jokes:del:"))
+    application.add_handler(CallbackQueryHandler(cb_jokes_show, pattern=r"^jokes:show$"))
+    application.add_handler(CallbackQueryHandler(cb_jokes_cooldown, pattern=r"^jokes:cooldown$"))
+    application.add_handler(CallbackQueryHandler(cb_reminders_set, pattern=r"^reminders:set:"))
     application.add_handler(CallbackQueryHandler(cb_owner_games, pattern=r"^owner:games$"))
     application.add_handler(CallbackQueryHandler(cb_og_info, pattern=r"^og:info:"))
     application.add_handler(CallbackQueryHandler(cb_og_add, pattern=r"^og:add:"))
